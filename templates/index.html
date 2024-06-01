@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CO2 Data</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/socket.io-client/dist/socket.io.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-streaming"></script>
+    <script src="https://cdn.jsdelivr.net/npm/luxon"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-luxon"></script>
+    <style>
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+        }
+        th, td {
+            border: 1px solid #dddddd;
+            text-align: left;
+            padding: 8px;
+        }
+        th {
+            background-color: #f2f2f2;
+        }
+        .average-values {
+            margin: 20px 0;
+        }
+        .average-values div {
+            margin: 5px 0;
+        }
+    </style>
+</head>
+<body>
+    <canvas id="co2Chart" width="1000" height="400"></canvas>
+    <div class="average-values">
+        <div id="avgCo2">Average CO2 (last 15 values): N/A</div>
+        <div id="avgTemp">Average Temperature (last 15 values): N/A</div>
+    </div>
+    <table>
+        <thead>
+            <tr>
+                <th>CO2 Level</th>
+                <th>Interpretation</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr>
+                <td>250-400 ppm</td>
+                <td>Normal background concentration in outdoor ambient air</td>
+            </tr>
+            <tr>
+                <td>400-1,000 ppm</td>
+                <td>Concentrations typical of occupied indoor spaces with good air exchange</td>
+            </tr>
+            <tr>
+                <td>1,000-2,000 ppm</td>
+                <td>Complaints of drowsiness and poor air</td>
+            </tr>
+            <tr>
+                <td>2,000-5,000 ppm</td>
+                <td>Headaches, sleepiness and stagnant, stale, stuffy air. Poor concentration, loss of attention, increased heart rate and slight nausea may also be present.</td>
+            </tr>
+        </tbody>
+    </table>
+    <script>
+        var ctx = document.getElementById('co2Chart').getContext('2d');
+        var maxCO2 = 600;  // Initial max value for the y-axis
+        var co2Chart = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: [],
+                datasets: [{
+                    label: 'CO2 Level',
+                    data: [],
+                    borderColor: 'rgba(75, 192, 192, 1)',
+                    borderWidth: 1,
+                    fill: false
+                }]
+            },
+            options: {
+                scales: {
+                    x: {
+                        type: 'realtime',
+                        realtime: {
+                            onRefresh: function(chart) {
+                                chart.data.datasets.forEach(function(dataset) {
+                                    dataset.data.push({
+                                        x: Date.now(),
+                                        y: dataset.data.length > 0 ? dataset.data[dataset.data.length - 1].y : 0
+                                    });
+                                });
+                            },
+                            delay: 2000,
+                            duration: 600000,  // 10 minutes in milliseconds initially
+                            refresh: 1000  // Refresh every second
+                        }
+                    },
+                    y: {
+                        beginAtZero: true,
+                        min: 200,
+                        max: maxCO2
+                    }
+                }
+            }
+        });
+
+        var socket = io.connect(location.protocol + '//' + document.domain + ':' + location.port);
+
+        var lastThreeCO2Values = [];
+        var lastThreeTempValues = [];
+        var dataPointCount = 0;
+
+        socket.on('connect', function() {
+            console.log("Socket.IO connected");
+        });
+
+        socket.on('disconnect', function() {
+            console.log("Socket.IO disconnected");
+        });
+
+        socket.on('update', function(msg) {
+            console.log("Received data: ", msg.values);  // Debug print
+            var co2Value = msg.values.CO2;
+            var tempValue = msg.values.Temperature;
+
+            // Update the max value for the y-axis if needed
+            if (co2Value > maxCO2 - 200) {
+                maxCO2 = co2Value + 200;
+                co2Chart.options.scales.y.max = maxCO2;
+            }
+
+            if (co2Chart.data.datasets[0].data.length > 1800) {  // Maintain 30 minutes of data assuming 1 data point per second
+                co2Chart.data.datasets[0].data.shift();
+            } else if (co2Chart.data.datasets[0].data.length > 600) {  // After 10 minutes, increase duration to show 30 minutes
+                co2Chart.options.scales.x.realtime.duration = 1800000;
+            }
+
+            co2Chart.data.datasets[0].data.push({x: Date.now(), y: co2Value});
+            co2Chart.update();
+
+            // Update last 15 CO2 and Temperature values
+            lastThreeCO2Values.push(co2Value);
+            if (lastThreeCO2Values.length > 15) {
+                lastThreeCO2Values.shift();
+            }
+            lastThreeTempValues.push(tempValue);
+            if (lastThreeTempValues.length > 15) {
+                lastThreeTempValues.shift();
+            }
+
+            // Calculate and display averages
+            var avgCo2 = lastThreeCO2Values.reduce((a, b) => a + b, 0) / lastThreeCO2Values.length;
+            var avgTemp = lastThreeTempValues.reduce((a, b) => a + b, 0) / lastThreeTempValues.length;
+
+            document.getElementById('avgCo2').textContent = 'Average CO2 (last 15 values): ' + avgCo2.toFixed(2);
+            document.getElementById('avgTemp').textContent = 'Average Temperature (last 15 values): ' + avgTemp.toFixed(2);
+        });
+
+        socket.on('connect_error', function(err) {
+            console.error("Connection error: ", err);
+        });
+
+        socket.on('reconnect_error', function(err) {
+            console.error("Reconnection error: ", err);
+        });
+
+        socket.on('reconnect_failed', function() {
+            console.error("Reconnection failed");
+        });
+    </script>
+</body>
+</html>
