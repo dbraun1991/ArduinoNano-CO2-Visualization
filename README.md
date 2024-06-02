@@ -75,6 +75,27 @@ Sample output:
 Close the Arduino IDE `serial monitor` to release the serial port.
 
 
+### Python environment setup
+
+Assumption:
+- Python3
+- pip3
+
+Create virtual environment:
+```bash
+python3 -m venv tempvenv
+source tempvenv/bin/activate
+```
+
+Within the tempvenv:
+```bash
+pip3 install pyserial
+pip3 install flask
+pip3 install flask_socketio
+```
+
+Now, all dependencies shall be available.
+
 
 ### Check the serial port
 
